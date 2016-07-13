@@ -2,8 +2,6 @@ package net.betaengine.immutableunion;
 
 import java.awt.Color;
 import java.awt.Paint;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -14,32 +12,15 @@ import com.google.common.collect.ImmutableList;
 import edu.uci.ics.jung.graph.Forest;
 import edu.uci.ics.jung.visualization.VisualizationViewer;
 import net.betaengine.algoviewer.BasicGui;
-import net.betaengine.algoviewer.CallStack;
 import net.betaengine.algoviewer.Drawer;
+import net.betaengine.algoviewer.DrawerCallstack;
 import net.betaengine.immutableunion.Sets.Set;
 
 public class UnionAlgoViewer {
-    private final AtomicReference<ImmutableList<?>> currentStack = new AtomicReference<>();
-    private final AtomicBoolean entry = new AtomicBoolean();
+    private final DrawerCallstack stack = new DrawerCallstack();
     
     private Drawer drawer;
-    
-    private final CallStack stack = new CallStack() {
-        @Override
-        protected void onEnter(String methodName, ImmutableList<?> stackList) {
-            entry.set(true);
-            currentStack.set(stackList);
-            drawer.drawEnter(methodName);
-        }
-        
-        @Override
-        protected void onExit(String methodName, ImmutableList<?> stackList, Object result) {
-            entry.set(false);
-            currentStack.set(stackList);
-            drawer.drawExit(methodName, result);
-        }
-    };
-    
+
     private static class UnionDrawer extends SetDrawer {
         private Set s1;
         private Set s2;
@@ -95,11 +76,13 @@ public class UnionAlgoViewer {
         
         drawer = new UnionDrawer(basicGui.getGraph(), basicGui.getViewer());
         
+        stack.setDrawer(drawer);
+        
         basicGui.show();
     }
     
     private Paint getColor(Set s) {
-        return getColor(currentStack.get(), entry.get(), s);
+        return getColor(stack.getCurrentStack(), stack.isEntry(), s);
     }
     
     private static Paint getColor(ImmutableList<?> stack, boolean entry, Set s) {
