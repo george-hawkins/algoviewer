@@ -5,6 +5,7 @@ import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Paint;
+import java.util.HashSet;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -44,22 +45,32 @@ public class Sets {
         }
     }
     
-//  draw() {
-//      synchronized (lock) {
-//          SwingUtilities.invokeLater(doRun);
-//          lock.wait(); // next button calls notify()
-//      }
-//  }
-//  
-
     private class Drawer {
         private final Object drawLock = new Object();
         private boolean enabled = false;
+        private ImmutableList<?> currentStack;
         private Set currentResult = null;
         private Timer timer = new Timer(200, e -> advance());
+        private boolean entry;
         
         public Drawer() {
             timer.setRepeats(false);
+        }
+        
+        public Paint getColor(Set s) {
+            synchronized (drawLock) {
+                if (currentStack.contains(s)) {
+                    Object last = currentStack.get(0);
+                    
+                    if (s == last) {
+                        return entry ? Color.GREEN : Color.RED;
+                    } else {
+                        return Color.BLUE;
+                    }
+                } else {
+                    return Color.YELLOW;
+                }
+            }
         }
         
         public void drawEnter(String methodName) {
@@ -67,6 +78,9 @@ public class Sets {
                 if (!enabled) {
                     return;
                 }
+                
+                entry = true;
+                currentStack = stack.copyStack();
             
                 SwingUtilities.invokeLater(this::doDraw);
                 wait(drawLock);
@@ -74,14 +88,17 @@ public class Sets {
         }
         
         public <T> void drawExit(T result, String methodName) {
+            if (!(result instanceof Set)) {
+                return;
+            }
+            
             synchronized (drawLock) {
                 if (!enabled) {
                     return;
                 }
                 
-                if (!(result instanceof Set)) {
-                    return;
-                }
+                entry = false;
+                currentStack = stack.copyStack();
                 
                 currentResult = (Set)result;
             
@@ -91,42 +108,65 @@ public class Sets {
         }
         
         private void doDraw() {
-            System.out.print(".");
-            
-            // Remove all existing vertices (this will also remove all their edges).
-            ImmutableList.copyOf(graph.getVertices()).stream().forEach(graph::removeVertex);
-            
-            populateGraph(graph);
-            
-            viewer.setGraphLayout(createLayout(graph));
-            viewer.repaint();
-
-            timer.start();
-        }
-        
-        private Layout<Set, Integer> createLayout(Forest<Set, Integer> graph) {
-            try {
+            synchronized (drawLock) {
+                System.err.print(".");
+                
+                // Remove all existing vertices (this will also remove all their edges).
+                ImmutableList.copyOf(graph.getVertices()).stream().forEach(graph::removeVertex);
+                
+                populateGraph(graph);
+                
                 // If you call setGraph(...) on TreeLayout it still hangs onto state from the old graph (see `alreadyDone` etc.).
                 // So we have to discard the old layout and create a new one.
-                return new TreeLayout<Set, Integer>(graph);
-            } catch (IllegalArgumentException e) {
-                System.err.println(e.getMessage());
+                Layout<Set, Integer> newLayout = new TreeLayout<Set, Integer>(graph);
                 
-                return viewer.getGraphLayout();
+                viewer.setGraphLayout(newLayout);
+    
+                timer.start();
             }
         }
         
         private void populateGraph(Forest<Set, Integer> graph) {
-            addSet(graph, s1);
-            addSet(graph, s2);
+            alreadyVisited.clear();
+            
+            addSubTree(graph, s1);
+            addSubTree(graph, s2);
             
             if (currentResult != null) {
-                addSet(graph, currentResult);
+                if (alreadyVisited.contains(currentResult)) {
+                    // This is a shortcoming of the current setup...
+                    System.err.println("Info: cannot draw current result " + currentResult + " as it's a pure subtree of one of the existing trees");
+                    // addSubTree(...) will simply ignore currentResult.
+                }
+                
+                addSubTree(graph, currentResult);
+            }
+        }
+        
+        private final HashSet<Set> alreadyVisited = new HashSet<>();
+        private Integer edge = 1; // `edge` could be any class - using Integer is about the simplest.
+
+        private void addSubTree(Forest<Set, Integer> graph, Set parent) {
+            if (!alreadyVisited.contains(parent)) {
+                alreadyVisited.add(parent);
+                
+                if (parent.getChildren().isEmpty()) {
+                    graph.addVertex(parent);
+                } else {
+                    for (Set child : parent.getChildren()) {
+                        graph.addEdge(edge++, parent, child);
+                        addSubTree(graph, child);
+                    }
+                }
             }
         }
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+        
+        public void clearResult() {
+            currentResult = null;
         }
 
         private void advance() {
@@ -151,6 +191,8 @@ public class Sets {
         Set incl(int elem);
         
         List<Set> getChildren();
+        
+        String getName();
     }
     
     private abstract class AbstractSet implements Set {
@@ -174,7 +216,12 @@ public class Sets {
         
         @Override
         public String toString() {
-            return "-";
+            return ".";
+        }
+        
+        @Override
+        public String getName() {
+            return toString();
         }
     }
 
@@ -222,6 +269,11 @@ public class Sets {
         
         @Override
         public String toString() {
+            return "{" + left + elem + right + "}";
+        }
+        
+        @Override
+        public String getName() {
             return Integer.toString(elem);
         }
     }
@@ -229,15 +281,9 @@ public class Sets {
     private final static int VIEWER_WIDTH = 1600;
     private final static int VIEWER_HEIGHT = 400;
     
-    private /*final*/ Forest<Set, Integer> graph = new OrderedForest<>();
+    private final Forest<Set, Integer> graph = new OrderedForest<>();
     
-    private /*final*/ VisualizationViewer<Set, Integer> viewer = createViewer(graph);
-    
-    private boolean colorToggle = true;
-    
-    private Paint getColor(Set s) {
-        return colorToggle ? Color.RED : Color.GREEN;
-    }
+    private final VisualizationViewer<Set, Integer> viewer = createViewer(graph);
     
     private VisualizationViewer<Set, Integer> createViewer(Forest<Set, Integer> graph) {
         TreeLayout<Set, Integer> layout = new TreeLayout<Set, Integer>(graph);
@@ -245,8 +291,8 @@ public class Sets {
         
         viewer.setBackground(Color.WHITE);
         viewer.getRenderContext().setEdgeShapeTransformer(EdgeShape.line(graph));
-        viewer.getRenderContext().setVertexFillPaintTransformer(this::getColor);
-        viewer.getRenderContext().setVertexLabelTransformer(new ToStringLabeller());
+        viewer.getRenderContext().setVertexFillPaintTransformer(drawer::getColor);
+        viewer.getRenderContext().setVertexLabelTransformer(s -> s.getName());
         viewer.getRenderer().getVertexLabelRenderer().setPosition(Renderer.VertexLabel.Position.CNTR);
         viewer.setVertexToolTipTransformer(new ToStringLabeller());
 
@@ -256,29 +302,14 @@ public class Sets {
     private Set s1;
     private Set s2;
 
-    private void addSet(Forest<Set, Integer> graph, Set set) {
-        graph.addVertex(set);
-        addChildren(graph, set);
-    }
-
-    private Integer edge = 1; // `edge` could be any class - using Integer is about the simplest.
-
-    private void addChildren(Forest<Set, Integer> graph, Set parent) {
-        for (Set child : parent.getChildren()) {
-            graph.addEdge(edge++, parent, child);
-            addChildren(graph, child);
-        }
-    }
+    private final JButton nextButton = new JButton("Start >");
     
-    private boolean started = false;
-    
-    private void nextStep() {
-        if (started) {
-            System.err.println("Info: already started");
-            return;
-        }
+    private void start() {
+        nextButton.setEnabled(false);
         
-        started = true;
+        // These calls are only relevant if we're redoing things, i.e. user pressed restart.
+        drawer.clearResult();;
+        drawer.setEnabled(false);
     
         s1 = new EmptySet().incl(7).incl(3).incl(11).incl(1).incl(5).incl(9).incl(13);
         s2 = new EmptySet().incl(8).incl(4).incl(12).incl(2).incl(6).incl(10).incl(14);
@@ -289,15 +320,20 @@ public class Sets {
         
         new Thread(() -> {
             s1.union(s2);
-            System.err.println("Info: completed");
+            SwingUtilities.invokeLater(() -> finished());
         }).start();
+    }
+    
+    private void finished() {
+        System.err.println("Info: completed - " + stack);
+
+        nextButton.setText("Restart >");
+        nextButton.setEnabled(true);
     }
     
     private JPanel createButtonPanel() {
         JPanel panel = new JPanel();
-        JButton nextButton = new JButton("Next >");
-        
-        nextButton.addActionListener(e -> nextStep());
+        nextButton.addActionListener(e -> start());
         
         panel.add(nextButton);
         
