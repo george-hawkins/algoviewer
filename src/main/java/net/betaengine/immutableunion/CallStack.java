@@ -28,4 +28,9 @@ public class CallStack {
                 .add("callCount", callCount)
                 .toString();
     }
+
+    public void clear() {
+        stack.clear();
+        callCount.clear();
+    }
 }
