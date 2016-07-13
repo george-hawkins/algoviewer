@@ -1,4 +1,4 @@
-package net.betaengine.immutableunion;
+package net.betaengine.algoviewer;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -18,6 +18,8 @@ public class OrderedForest<V, E> extends DelegateForest<V, E> {
         // means children are ordered according to their insertion order.
         super(new DirectedOrderedSparseMultigraph<>());
     }
+    
+    // Identical to super class implementation except for use of LinkedHashSet.
     @Override
     public Collection<V> getRoots() {
         Collection<V> roots = new LinkedHashSet<V>();
@@ -29,6 +31,7 @@ public class OrderedForest<V, E> extends DelegateForest<V, E> {
         return roots;
     }
 
+    // Identical to super class implementation except for use of LinkedHashSet.
     @Override
     public Collection<Tree<V, E>> getTrees() {
         Collection<Tree<V,E>> trees = new LinkedHashSet<Tree<V,E>>();
